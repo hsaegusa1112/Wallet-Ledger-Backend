@@ -31,6 +31,7 @@ docker compose exec postgres psql -U wallet_ledger -d wallet_ledger
 | Credit wallet | `POST /players/{playerId}/wallet/credits` | Requires an `Idempotency-Key` header. |
 | Debit wallet | `POST /players/{playerId}/wallet/debits` | Returns `422` when funds are insufficient. |
 | Get balance | `GET /players/{playerId}/wallet/balance` | Returns the current balance. |
+| Check balance | `GET /players/{playerId}/wallet/balance-check` | Recomputes the balance from the operation ledger. |
 | Get history | `GET /players/{playerId}/wallet/history?page=0&size=20` | Returns newest-first, paginated operations. |
 
 Credit and debit requests require a positive amount with up to four decimal places and a reason:
@@ -91,6 +92,6 @@ The initial migration, `V1__create_wallets.sql`, creates the `wallets` table. Fl
 This service is assumed to run as a backend worker behind an authenticated API gateway or upstream service. Authentication and authorization are therefore outside this service's scope; the caller is responsible for ensuring it is authorized to operate on the supplied player ID.
 
 - Each player has one wallet in one currency; transfers and currency conversion are not implemented.
-- Refunds, holds, bulk rewards, and reconciliation are outside the current scope.
+- Refunds, holds, and reconciliation are outside the current scope. Bulk rewards are processed synchronously in one transaction and capped at 100 recipients. This is appropriate for small distributions, but it holds multiple wallet locks and scales poorly; a larger system should persist a batch and process its items asynchronously through retryable worker jobs.
 - Tests require Docker Compose to be running and write uniquely named test wallets to the local development database. A production CI pipeline should use an isolated database per test run.
 - The service does not yet provide OpenAPI documentation, metrics, structured logs, or a balance-reconciliation endpoint.

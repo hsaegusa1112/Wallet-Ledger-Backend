@@ -1,6 +1,12 @@
 package com.walletledger.wallet;
 
 import java.math.BigDecimal;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -47,6 +53,30 @@ public class WalletService {
             .orElseGet(() -> createOperation(wallet, operationType, amount, idempotencyKey, reason));
     }
 
+    @Transactional
+    public List<BulkRewardResult> distributeRewards(List<BulkReward> rewards, String idempotencyKey, String reason) {
+        List<String> playerIds = rewards.stream().map(BulkReward::playerId).sorted().toList();
+        List<Wallet> wallets = walletRepository.findAllByPlayerIdInForUpdate(playerIds);
+        if (wallets.size() != rewards.size()) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "One or more wallets were not found");
+        }
+
+        Map<String, Wallet> walletsByPlayerId = new HashMap<>();
+        for (Wallet wallet : wallets) {
+            walletsByPlayerId.put(wallet.getPlayerId(), wallet);
+        }
+
+        return rewards.stream().map(reward -> {
+            Wallet wallet = walletsByPlayerId.get(reward.playerId());
+            WalletOperation operation = walletOperationRepository
+                    .findByWalletIdAndIdempotencyKey(wallet.getId(), bulkOperationKey(idempotencyKey, reward.playerId()))
+                    .map(existing -> replayOrReject(existing, OperationType.CREDIT, reward.amount(), reason))
+                    .orElseGet(() -> createOperation(wallet, OperationType.CREDIT, reward.amount(),
+                            bulkOperationKey(idempotencyKey, reward.playerId()), reason));
+            return new BulkRewardResult(reward.playerId(), operation);
+        }).toList();
+    }
+
     @Transactional(readOnly = true)
     public Wallet getWallet(String playerId) {
         return walletRepository.findByPlayerId(playerId)
@@ -57,6 +87,13 @@ public class WalletService {
     public Page<WalletOperation> getHistory(String playerId, int page, int size) {
         Wallet wallet = getWallet(playerId);
         return walletOperationRepository.findByWalletIdOrderByCreatedAtDescIdDesc(wallet.getId(), PageRequest.of(page, size));
+    }
+
+    @Transactional(readOnly = true)
+    public BalanceCheck checkBalance(String playerId) {
+        Wallet wallet = getWallet(playerId);
+        BigDecimal ledgerBalance = walletOperationRepository.calculateBalanceFromOperations(wallet.getId());
+        return new BalanceCheck(wallet.getBalance(), ledgerBalance, wallet.getBalance().compareTo(ledgerBalance) == 0);
     }
 
     private WalletOperation replayOrReject(WalletOperation existing, OperationType operationType, BigDecimal amount,
@@ -81,5 +118,28 @@ public class WalletService {
         wallet.setBalance(balanceAfter);
         return walletOperationRepository.save(
             new WalletOperation(wallet, operationType, amount, balanceAfter, idempotencyKey, reason));
+    }
+
+    private String bulkOperationKey(String idempotencyKey, String playerId) {
+        try {
+            byte[] hash = MessageDigest.getInstance("SHA-256")
+                    .digest((idempotencyKey + "\u0000" + playerId).getBytes(StandardCharsets.UTF_8));
+            StringBuilder value = new StringBuilder("bulk-");
+            for (byte hashByte : hash) {
+                value.append(String.format("%02x", hashByte));
+            }
+            return value.toString();
+        } catch (NoSuchAlgorithmException exception) {
+            throw new IllegalStateException("SHA-256 is not available", exception);
+        }
+    }
+
+    public record BulkReward(String playerId, BigDecimal amount) {
+    }
+
+    public record BulkRewardResult(String playerId, WalletOperation operation) {
+    }
+
+    public record BalanceCheck(BigDecimal currentBalance, BigDecimal ledgerBalance, boolean matches) {
     }
 }

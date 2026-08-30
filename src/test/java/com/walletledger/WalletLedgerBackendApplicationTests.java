@@ -102,6 +102,8 @@ class WalletLedgerBackendApplicationTests {
         assertThat(applyOperation(playerId, "debits", new BigDecimal("20.0000"), "debit-2", "expensive purchase")
             .statusCode()).isEqualTo(422);
         assertThat(balance(playerId)).isEqualByComparingTo("15.0000");
+        assertThat(balanceCheck(playerId)).contains("\"currentBalance\":15.0000", "\"ledgerBalance\":15.0000",
+            "\"matches\":true");
 
         String history = history(playerId);
         assertThat(history).contains("\"totalElements\":3", "\"reason\":\"mission reward\"",
@@ -121,6 +123,27 @@ class WalletLedgerBackendApplicationTests {
         assertThat(get(playerId, "/history?page=-1&size=20").statusCode()).isEqualTo(400);
         assertThat(balance(playerId)).isEqualByComparingTo("10.0000");
         }
+
+    @Test
+    void bulkRewardsAreAtomicAndIdempotentWithDifferentAmountsPerPlayer() throws Exception {
+        String firstPlayerId = newPlayerId();
+        String secondPlayerId = newPlayerId();
+        createWallet(firstPlayerId);
+        createWallet(secondPlayerId);
+
+        String requestBody = "{\"reason\":\"tournament placement\",\"rewards\":[{\"playerId\":\""
+                + firstPlayerId + "\",\"amount\":100.0000},{\"playerId\":\"" + secondPlayerId
+                + "\",\"amount\":25.5000}]}";
+        assertThat(bulkRewards(requestBody, "tournament-001").statusCode()).isEqualTo(200);
+        assertThat(bulkRewards(requestBody, "tournament-001").statusCode()).isEqualTo(200);
+        assertThat(balance(firstPlayerId)).isEqualByComparingTo("100.0000");
+        assertThat(balance(secondPlayerId)).isEqualByComparingTo("25.5000");
+
+        String invalidBatch = "{\"reason\":\"should roll back\",\"rewards\":[{\"playerId\":\""
+                + firstPlayerId + "\",\"amount\":10.0000},{\"playerId\":\"unknown-player\",\"amount\":10.0000}]}";
+        assertThat(bulkRewards(invalidBatch, "tournament-002").statusCode()).isEqualTo(404);
+        assertThat(balance(firstPlayerId)).isEqualByComparingTo("100.0000");
+    }
 
     private <T> List<T> runConcurrently(int requestCount, ConcurrentOperation<T> operation) throws Exception {
         ExecutorService executor = Executors.newFixedThreadPool(requestCount);
@@ -172,6 +195,15 @@ class WalletLedgerBackendApplicationTests {
         return httpClient.send(request, HttpResponse.BodyHandlers.ofString());
     }
 
+    private HttpResponse<String> bulkRewards(String requestBody, String idempotencyKey) throws Exception {
+        HttpRequest request = HttpRequest.newBuilder(URI.create(BASE_URL + "/rewards/bulk"))
+                .header("Content-Type", "application/json")
+                .header("Idempotency-Key", idempotencyKey)
+                .POST(HttpRequest.BodyPublishers.ofString(requestBody))
+                .build();
+        return httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+    }
+
     private BigDecimal balance(String playerId) throws Exception {
         HttpResponse<String> response = httpClient.send(HttpRequest.newBuilder(URI.create(walletUri(playerId) + "/balance"))
                 .GET().build(), HttpResponse.BodyHandlers.ofString());
@@ -182,6 +214,12 @@ class WalletLedgerBackendApplicationTests {
 
     private String history(String playerId) throws Exception {
         HttpResponse<String> response = get(playerId, "/history?page=0&size=20");
+        assertThat(response.statusCode()).isEqualTo(200);
+        return response.body();
+    }
+
+    private String balanceCheck(String playerId) throws Exception {
+        HttpResponse<String> response = get(playerId, "/balance-check");
         assertThat(response.statusCode()).isEqualTo(200);
         return response.body();
     }

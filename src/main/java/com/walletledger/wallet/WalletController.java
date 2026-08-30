@@ -60,6 +60,11 @@ public class WalletController {
         return WalletBalanceResponse.from(walletService.getWallet(playerId));
     }
 
+    @GetMapping("/balance-check")
+    BalanceCheckResponse checkBalance(@PathVariable String playerId) {
+        return BalanceCheckResponse.from(walletService.checkBalance(playerId));
+    }
+
     @GetMapping("/history")
     Page<WalletOperationResponse> getHistory(@PathVariable String playerId,
             @RequestParam(defaultValue = "0") @Min(0) int page,
@@ -77,6 +82,13 @@ public class WalletController {
     record WalletBalanceResponse(String playerId, String currency, BigDecimal balance) {
         static WalletBalanceResponse from(Wallet wallet) {
             return new WalletBalanceResponse(wallet.getPlayerId(), wallet.getCurrency(), wallet.getBalance());
+        }
+    }
+
+    record BalanceCheckResponse(BigDecimal currentBalance, BigDecimal ledgerBalance, boolean matches) {
+        static BalanceCheckResponse from(WalletService.BalanceCheck balanceCheck) {
+            return new BalanceCheckResponse(balanceCheck.currentBalance(), balanceCheck.ledgerBalance(),
+                    balanceCheck.matches());
         }
     }
 
