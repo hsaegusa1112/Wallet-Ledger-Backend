@@ -7,6 +7,7 @@ import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Pattern;
+import jakarta.validation.constraints.Size;
 import java.math.BigDecimal;
 import java.time.OffsetDateTime;
 import org.springframework.data.domain.Page;
@@ -40,7 +41,8 @@ public class WalletController {
     }
 
     @PostMapping("/credits")
-    WalletOperationResponse credit(@PathVariable String playerId, @RequestHeader("Idempotency-Key") @NotBlank String idempotencyKey,
+        WalletOperationResponse credit(@PathVariable String playerId,
+            @RequestHeader("Idempotency-Key") @NotBlank @Size(max = 255) String idempotencyKey,
             @Valid @RequestBody MoneyRequest request) {
         return WalletOperationResponse.from(
             walletService.applyOperation(playerId, OperationType.CREDIT, request.amount(), idempotencyKey,
@@ -48,7 +50,8 @@ public class WalletController {
     }
 
     @PostMapping("/debits")
-    WalletOperationResponse debit(@PathVariable String playerId, @RequestHeader("Idempotency-Key") @NotBlank String idempotencyKey,
+        WalletOperationResponse debit(@PathVariable String playerId,
+            @RequestHeader("Idempotency-Key") @NotBlank @Size(max = 255) String idempotencyKey,
             @Valid @RequestBody MoneyRequest request) {
         return WalletOperationResponse.from(
             walletService.applyOperation(playerId, OperationType.DEBIT, request.amount(), idempotencyKey,
@@ -72,7 +75,8 @@ public class WalletController {
         return walletService.getHistory(playerId, page, size).map(WalletOperationResponse::from);
     }
 
-    record CreateWalletRequest(@NotBlank String name, @NotBlank @Pattern(regexp = "[A-Z]{3}") String currency) {
+        record CreateWalletRequest(@NotBlank @Size(max = 255) String name,
+            @NotBlank @Pattern(regexp = "[A-Z]{3}") String currency) {
     }
 
         record MoneyRequest(@NotNull @DecimalMin(value = "0.0001") @jakarta.validation.constraints.Digits(integer = 15, fraction = 4) BigDecimal amount,

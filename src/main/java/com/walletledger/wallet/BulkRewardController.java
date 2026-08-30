@@ -19,8 +19,10 @@ import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.validation.annotation.Validated;
 
 @RestController
+@Validated
 @RequestMapping("/rewards")
 public class BulkRewardController {
 
@@ -32,7 +34,7 @@ public class BulkRewardController {
 
     @PostMapping("/bulk")
     @ResponseStatus(HttpStatus.OK)
-    List<BulkRewardResponse> distribute(@RequestHeader("Idempotency-Key") @NotBlank String idempotencyKey,
+    List<BulkRewardResponse> distribute(@RequestHeader("Idempotency-Key") @NotBlank @Size(max = 255) String idempotencyKey,
             @Valid @RequestBody BulkRewardRequest request) {
         ensureUniquePlayers(request.rewards());
         return walletService.distributeRewards(

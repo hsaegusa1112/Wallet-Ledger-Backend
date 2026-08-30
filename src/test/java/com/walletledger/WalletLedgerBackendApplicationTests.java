@@ -61,18 +61,17 @@ class WalletLedgerBackendApplicationTests {
         assertThat(applyOperation(playerId, "credits", new BigDecimal("100.0000"), "initial-credit", "seed funds").statusCode())
                 .isEqualTo(200);
 
-        List<OperationResult> results = runConcurrently(10, index -> {
+        List<Integer> statusCodes = runConcurrently(10, index -> {
             try {
-                int statusCode = applyOperation(playerId, "debits", new BigDecimal("15.0000"), "debit-" + index, "purchase")
+                return applyOperation(playerId, "debits", new BigDecimal("15.0000"), "debit-" + index, "purchase")
                         .statusCode();
-                return statusCode == 200 ? OperationResult.SUCCESS : OperationResult.REJECTED;
             } catch (Exception exception) {
                 throw new RuntimeException(exception);
             }
         });
 
-        assertThat(results).filteredOn(result -> result == OperationResult.SUCCESS).hasSize(6);
-        assertThat(results).filteredOn(result -> result == OperationResult.REJECTED).hasSize(4);
+        assertThat(statusCodes).filteredOn(statusCode -> statusCode == 200).hasSize(6);
+        assertThat(statusCodes).filteredOn(statusCode -> statusCode == 422).hasSize(4);
         assertThat(balance(playerId)).isEqualByComparingTo("10.0000");
     }
 
@@ -238,8 +237,4 @@ class WalletLedgerBackendApplicationTests {
         T run(int requestIndex) throws Exception;
     }
 
-    private enum OperationResult {
-        SUCCESS,
-        REJECTED
-    }
 }
