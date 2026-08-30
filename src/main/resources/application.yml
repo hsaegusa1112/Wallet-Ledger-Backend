@@ -1,0 +1,23 @@
+spring:
+  application:
+    name: wallet-ledger-backend
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/wallet_ledger}
+    username: ${DB_USERNAME:wallet_ledger}
+    password: ${DB_PASSWORD:wallet_ledger}
+  flyway:
+    enabled: true
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      probes:
+        enabled: true
