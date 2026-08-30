@@ -31,8 +31,9 @@ docker compose exec postgres psql -U wallet_ledger -d wallet_ledger
 | Credit wallet | `POST /players/{playerId}/wallet/credits` | Requires an `Idempotency-Key` header. |
 | Debit wallet | `POST /players/{playerId}/wallet/debits` | Returns `422` when funds are insufficient. |
 | Get balance | `GET /players/{playerId}/wallet/balance` | Returns the current balance. |
-| Check balance | `GET /players/{playerId}/wallet/balance-check` | Recomputes the balance from the operation ledger. |
+| Check balance | `GET /players/{playerId}/wallet/balance-check` | Compares the stored balance against a ledger-derived total. |
 | Get history | `GET /players/{playerId}/wallet/history?page=0&size=20` | Returns newest-first, paginated operations. |
+| Distribute bulk rewards | `POST /rewards/bulk` | Atomically credits up to 100 unique players. Requires an `Idempotency-Key` header. |
 
 Credit and debit requests require a positive amount with up to four decimal places and a reason:
 
@@ -52,6 +53,31 @@ curl -X POST http://localhost:8080/players/player-1/wallet/credits \
 	-d '{"amount":25.0000,"reason":"mission reward"}'
 ```
 
+Check a stored balance against the operation ledger:
+
+```sh
+curl http://localhost:8080/players/player-1/wallet/balance-check
+```
+
+```json
+{
+	"currentBalance": 25.0000,
+	"ledgerBalance": 25.0000,
+	"matches": true
+}
+```
+
+Distribute rewards with different amounts in one atomic transaction:
+
+```sh
+curl -X POST http://localhost:8080/rewards/bulk \
+	-H 'Content-Type: application/json' \
+	-H 'Idempotency-Key: tournament-001' \
+	-d '{"reason":"tournament placement","rewards":[{"playerId":"player-1","amount":100.0000},{"playerId":"player-2","amount":25.5000}]}'
+```
+
+All recipients must have wallets. If any recipient is missing, the request returns `404` and no rewards are applied.
+
 ## Tests
 
 The integration tests target the running Docker Compose application, including its PostgreSQL database and row locks. Start the stack first, then run:
@@ -61,7 +87,7 @@ docker compose up --build -d
 mvn test
 ```
 
-The suite verifies concurrent credits, concurrent debits that never overdraw a wallet, and concurrent replays of one idempotency key. Set `APP_BASE_URL` to target a non-default application address.
+The suite verifies concurrent credits, concurrent debits that never overdraw a wallet, concurrent replays of one idempotency key, and atomic bulk rewards. Set `APP_BASE_URL` to target a non-default application address.
 
 ## Design decisions
 
@@ -92,6 +118,6 @@ The initial migration, `V1__create_wallets.sql`, creates the `wallets` table. Fl
 This service is assumed to run as a backend worker behind an authenticated API gateway or upstream service. Authentication and authorization are therefore outside this service's scope; the caller is responsible for ensuring it is authorized to operate on the supplied player ID.
 
 - Each player has one wallet in one currency; transfers and currency conversion are not implemented.
-- Refunds, holds, and reconciliation are outside the current scope. Bulk rewards are processed synchronously in one transaction and capped at 100 recipients. This is appropriate for small distributions, but it holds multiple wallet locks and scales poorly; a larger system should persist a batch and process its items asynchronously through retryable worker jobs.
+- Refunds and holds are outside the current scope. Bulk rewards are processed synchronously in one transaction and capped at 100 recipients. This is appropriate for small distributions, but it holds multiple wallet locks and scales poorly; a larger system should persist a batch and process its items asynchronously through retryable worker jobs.
 - Tests require Docker Compose to be running and write uniquely named test wallets to the local development database. A production CI pipeline should use an isolated database per test run.
-- The service does not yet provide OpenAPI documentation, metrics, structured logs, or a balance-reconciliation endpoint.
+- The service does not yet provide OpenAPI documentation, metrics, or structured logs. The balance-check endpoint detects snapshot/ledger divergence but does not repair it automatically.
